@@ -1,9 +1,26 @@
 #include <opencv2/opencv.hpp>
 #include "error.h"
 
+/* ___ ___  ___  ______  ___  ______  __  ___      ______  ______  ___  ______  ___
+ * |  /  / /  / /  ___/ /  / /     / /  |/  /     /___  / /     / /  / /  ___/ /  /
+ * |    / /  / /___  / /  / /  /  / /      /     /  ___/ /  /  / /  / /  /  / /__/
+ * |___/ /__/ /_____/ /__/ /_____/ /__/|__/     /_____/ /_____/ /__/ /_____/ /__/
+ * NEW AND IMPROVED!
+ *
+ * NOW INCLUDES:
+ *  • OBJECT FILTERING BY COLOR!
+ *  • OBJECT FILTERING BY SIZE!
+ *  • CROPPING & MASKING ROI!
+ *  • AND MORE!
+ *
+ * WRITTEN BY TYLER PACKARD FOR TEAM 8 (PALY ROBOTICS)
+ */
+
+// Define what a Contour is
 using Contour = std::vector<cv::Point>;
 
 int main() {
+	// Set up video camera
 	cv::namedWindow("Camera Feed");
 
 	cv::VideoCapture vCap;
@@ -14,6 +31,7 @@ int main() {
 		return 1;
 	}
 
+	// Perform vision processes
 	while(vCap.isOpened()) {
 		// Load image
 		cv::Mat source;
@@ -49,13 +67,37 @@ int main() {
 		// Remove small blobs
 		contours.erase(std::remove_if(contours.begin(), contours.end(), [](Contour c) { return cv::contourArea(c) < 2000; }), contours.end());
 
-		// Draw blobs onto the source image (for testing)
-		for (int i = 0; i < contours.size(); ++i) {
-			cv::drawContours(source, contours, i, cv::Scalar(100, 255, 0), -1, CV_AA);
+		// Crop to ROI
+		cv::Mat roi = cv::Mat::zeros(10, 10, source.type());
+
+		if (contours.size() > 0) {
+			// Create mask
+			cv::Mat mask = cv::Mat::zeros(source.size(), CV_8UC1);
+
+			// Draw contours onto the mask so they are not removed
+			for (int i = 0; i < contours.size(); ++i) {
+				cv::drawContours(mask, contours, i, cv::Scalar(255), CV_FILLED);
+			}
+
+			cv::Mat masked;
+			source.copyTo(masked, mask);
+
+			// Determine ROI
+			int minX = INT_MAX, minY = INT_MAX, maxX = INT_MIN, maxY = INT_MIN;
+			for (int i = 0; i < contours.size(); ++i) {
+				cv::Rect rect = cv::boundingRect(cv::Mat(contours[i]));
+				if (rect.x < minX) minX = rect.x;
+				if (rect.y < minY) minY = rect.y;
+				if (rect.x + rect.width > maxX) maxX = rect.x + rect.width;
+				if (rect.y + rect.height > maxY) maxY = rect.y + rect.height;
+			}
+
+			roi = masked(cv::Rect(minX, minY, maxX - minX, maxY - minY)).clone();
 		}
 
 		// Show the detected features
-		cv::imshow("Camera Feed", source);
+		cv::imshow("Camera Feed", roi);
+
 
 		if (cv::waitKey(1) == 27) { // Wait for escape key press
 			break;
