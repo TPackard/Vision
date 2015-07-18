@@ -1,103 +1,47 @@
-#include <opencv2/opencv.hpp>
-#include "error.h"
+// ___ ___  ___  ______  ___  ______  __  ___      ______  ______  ___  ______  ___
+// |  /  / /  / /  ___/ /  / /     / /  |/  /     /___  / /     / /  / /  ___/ /  /
+// |    / /  / /___  / /  / /  /  / /      /     /  ___/ /  /  / /  / /  /  / /__/
+// |___/ /__/ /_____/ /__/ /_____/ /__/|__/     /_____/ /_____/ /__/ /_____/ /__/
+// NEW AND IMPROVED!
+//
+// NOW INCLUDES:
+//  • OBJECT FILTERING BY COLOR!
+//  • OBJECT FILTERING BY SIZE!
+//  • CROPPING & MASKING ROI!
+//  • AND MORE!
+//
+// WRITTEN BY TYLER PACKARD FOR TEAM 8 (PALY ROBOTICS)
+// SUMMER 2015
+//
 
-/* ___ ___  ___  ______  ___  ______  __  ___      ______  ______  ___  ______  ___
- * |  /  / /  / /  ___/ /  / /     / /  |/  /     /___  / /     / /  / /  ___/ /  /
- * |    / /  / /___  / /  / /  /  / /      /     /  ___/ /  /  / /  / /  /  / /__/
- * |___/ /__/ /_____/ /__/ /_____/ /__/|__/     /_____/ /_____/ /__/ /_____/ /__/
- * NEW AND IMPROVED!
- *
- * NOW INCLUDES:
- *  • OBJECT FILTERING BY COLOR!
- *  • OBJECT FILTERING BY SIZE!
- *  • CROPPING & MASKING ROI!
- *  • AND MORE!
- *
- * WRITTEN BY TYLER PACKARD FOR TEAM 8 (PALY ROBOTICS)
- */
-
-// Define what a Contour is
-using Contour = std::vector<cv::Point>;
+#include "vision.h"
 
 int main() {
 	// Set up video camera
 	cv::namedWindow("Camera Feed");
 
-	cv::VideoCapture vCap;
-	vCap.open(0);
-
-	if (!vCap.isOpened()) {
-		ERROR("No camera");
-		return 1;
-	}
+	Camera camera;
 
 	// Perform vision processes
-	while(vCap.isOpened()) {
+	while(camera.isOpened()) {
 		// Load image
-		cv::Mat source;
-		vCap.read(source);
+		Matrix source = camera.read();
 
-		// Apply Gaussian blur so that only notable features are detected
-		cv::Mat denoised = cv::Mat::zeros(source.size(), source.type());
-		cv::GaussianBlur(source, denoised, cv::Size(9, 9), 0, 0);
+		// Copy source into a matrix to transform
+		Matrix transformed(source);
 
-		// Double contrast and decrease brightness by 100
-		cv::Mat contrasted = cv::Mat::zeros(source.size(), source.type());
-		denoised.convertTo(contrasted, -1, 3.0, -100.0);
+		// Apply the following transformations:
+		//   • Gaussian blur so that only notable features are detected
+		transformed.blur(9);
 
-		// Convert to HSV colorspace
-		cv::Mat hsvSource = cv::Mat::zeros(source.size(), source.type());
-		cv::cvtColor(denoised, hsvSource, CV_BGR2HSV);
+		// Finds and stores large yellow areas
+		Contours contours = *transformed.findContours(cv::Scalar(20, 125, 50), cv::Scalar(41, 243, 255)).weedBySize(2000, INT_MAX);
 
-		// Mask out non-yellow pixels
-		cv::Mat masked = cv::Mat::zeros(hsvSource.size(), hsvSource.type());
-		cv::inRange(hsvSource, cv::Scalar(20, 125, 50), cv::Scalar(41, 243, 255), masked);
-
-		// Remove small discrepancies
-		int strength = 5;
-		erode(masked, masked, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(strength, strength)));
-		dilate(masked, masked, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(strength, strength)));
-		dilate(masked, masked, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(strength, strength)));
-		erode(masked, masked, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(strength, strength)));
-
-		// Detect blobs
-		std::vector<Contour> contours;
-		cv::findContours(masked, contours, CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE);
-
-		// Remove small blobs
-		contours.erase(std::remove_if(contours.begin(), contours.end(), [](Contour c) { return cv::contourArea(c) < 2000; }), contours.end());
-
-		// Crop to ROI
-		cv::Mat roi = cv::Mat::zeros(10, 10, source.type());
-
-		if (contours.size() > 0) {
-			// Create mask
-			cv::Mat mask = cv::Mat::zeros(source.size(), CV_8UC1);
-
-			// Draw contours onto the mask so they are not removed
-			for (int i = 0; i < contours.size(); ++i) {
-				cv::drawContours(mask, contours, i, cv::Scalar(255), CV_FILLED);
-			}
-
-			cv::Mat masked;
-			source.copyTo(masked, mask);
-
-			// Determine ROI
-			int minX = INT_MAX, minY = INT_MAX, maxX = INT_MIN, maxY = INT_MIN;
-			for (int i = 0; i < contours.size(); ++i) {
-				cv::Rect rect = cv::boundingRect(cv::Mat(contours[i]));
-				if (rect.x < minX) minX = rect.x;
-				if (rect.y < minY) minY = rect.y;
-				if (rect.x + rect.width > maxX) maxX = rect.x + rect.width;
-				if (rect.y + rect.height > maxY) maxY = rect.y + rect.height;
-			}
-
-			roi = masked(cv::Rect(minX, minY, maxX - minX, maxY - minY)).clone();
-		}
+		// Mask and crop to ROI
+		Matrix roi = source.mask(contours).crop(contours);
 
 		// Show the detected features
 		cv::imshow("Camera Feed", roi);
-
 
 		if (cv::waitKey(1) == 27) { // Wait for escape key press
 			break;
